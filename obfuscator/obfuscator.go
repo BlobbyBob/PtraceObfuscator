@@ -2,97 +2,110 @@ package obfuscator
 
 import (
 	"debug/elf"
-	"fmt"
+	"github.com/BlobbyBob/NOPfuscator/common"
 	"golang.org/x/arch/x86/x86asm"
 	"io/ioutil"
 )
 
-type Jump struct {
-	Inst   x86asm.Inst
-	Offset uint64
-}
-
-func Obfuscate(filename string) error {
+func Obfuscate(filename string) (*[]common.ObfuscatedInstruction, error) {
 	file, err := elf.Open(filename)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	fmt.Println("ELF Type:", file.Type)
-
 	textSection := file.Section(".text")
-	fmt.Println("Section Name:", textSection.Name)
-
 	textReader := textSection.Open()
-	var code []byte
+	code := make([]byte, 0)
 	for {
-		codeBit := []byte{0, 0, 0, 0, 0, 0, 0, 0}
-		_, err := textReader.Read(codeBit)
+		codeBit := make([]byte, 8)
+		n, err := textReader.Read(codeBit)
 		if err != nil {
 			break
 		}
-		code = append(code, codeBit...)
-		//fmt.Println(hex.EncodeToString(codeBit))
+		code = append(code, codeBit[:n]...)
 	}
-
-	fmt.Println()
 
 	err = nil
 	i := 0
-	jumps := []Jump{}
+	obfuscatedInstructions := make([]common.ObfuscatedInstruction, 0)
 	for i < len(code) {
 		var inst x86asm.Inst
 		inst, err = x86asm.Decode(code[i:], 64)
 		if err != nil {
-			return err
+			// If we are strict we return an error here
+			// However, we will use the soft version and just skip obfuscating, if we can't decode an instruction
+			break
 		}
 
-		if inst.Op.String()[0] == 'J' {
-			jumps = append(jumps, Jump{
+		// Find instructions to obfuscate
+		if obfuscateInstruction(inst) {
+			obfuscatedInstructions = append(obfuscatedInstructions, common.ObfuscatedInstruction{
 				Inst:   inst,
 				Offset: uint64(i),
+				Binary: code[i:i+inst.Len],
 			})
 		}
-		fmt.Printf("[%03x|%01x]    ", i, inst.Len)
-		s := ""
-		for _, c := range code[i : i+inst.Len] {
-			s += fmt.Sprintf("%02x ", c)
-		}
-		fmt.Printf("%-21v", s)
-		fmt.Println(inst.String())
 		i += inst.Len
 	}
 
-	// Find start of .text
 	elfContents, err := ioutil.ReadFile(filename)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	var obfuscatedElf []byte
+	obfuscatedElf := make([]byte, len(elfContents))
 
 	for offset, data := range elfContents {
+		// Obfuscate matched instructions in text section
 		if uint64(offset) >= textSection.Offset && uint64(offset) < textSection.Offset+textSection.Size {
 			relOffset := uint64(offset) - textSection.Offset
 			isJump := false
-			for _, jump := range jumps {
+			for _, jump := range obfuscatedInstructions {
 				if relOffset >= jump.Offset && relOffset < jump.Offset+uint64(jump.Inst.Len) {
 					isJump = true
 				}
 			}
 			if isJump {
-				obfuscatedElf = append(obfuscatedElf, 0x90)
+				obfuscatedElf[offset] = 0xcc //0x90
 			} else {
-				obfuscatedElf = append(obfuscatedElf, data)
+				obfuscatedElf[offset] = data
 			}
 		} else {
-			obfuscatedElf = append(obfuscatedElf, data)
+			obfuscatedElf[offset] = data
 		}
 	}
 
-	err = ioutil.WriteFile(filename+".obf", obfuscatedElf, 0666)
+	err = ioutil.WriteFile(filename+".obf", obfuscatedElf, 0777)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return &obfuscatedInstructions, nil
+}
+
+func obfuscateInstruction(inst x86asm.Inst) bool {
+	switch inst.Op {
+	case x86asm.JA,
+		x86asm.JAE,
+		x86asm.JB,
+		x86asm.JBE,
+		x86asm.JCXZ,
+		x86asm.JE,
+		x86asm.JECXZ,
+		x86asm.JG,
+		x86asm.JGE,
+		x86asm.JL,
+		x86asm.JLE,
+		x86asm.JMP,
+		x86asm.JNE,
+		x86asm.JNO,
+		x86asm.JNP,
+		x86asm.JNS,
+		x86asm.JO,
+		x86asm.JP,
+		x86asm.JRCXZ,
+		x86asm.JS:
+		return true
+	}
+
+	return false
 }

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"github.com/BlobbyBob/NOPfuscator/common"
 	"github.com/BlobbyBob/NOPfuscator/obfuscator"
+	"io/ioutil"
 	"os"
 )
 
@@ -11,8 +14,17 @@ func main() {
 	}
 	filename := os.Args[1]
 
-	err := obfuscator.Obfuscate(filename)
+	metadata, err := obfuscator.Obfuscate(filename)
 	if err != nil {
+		panic(err)
+	}
+
+	metadataJson, err := json.Marshal(common.ExportObfuscatedInstructions(*metadata))
+	if err != nil {
+		panic(err)
+	}
+
+	if err := ioutil.WriteFile(filename + ".meta", metadataJson, 0666); err != nil {
 		panic(err)
 	}
 
