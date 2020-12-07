@@ -2,6 +2,7 @@ package obfuscator
 
 import (
 	"debug/elf"
+	"fmt"
 	"github.com/BlobbyBob/NOPfuscator/common"
 	"golang.org/x/arch/x86/x86asm"
 	"io/ioutil"
@@ -29,11 +30,25 @@ func Obfuscate(filename string) (*[]common.ObfuscatedInstruction, error) {
 	i := 0
 	obfuscatedInstructions := make([]common.ObfuscatedInstruction, 0)
 	for i < len(code) {
+		// Dirty hack to catch unknown instruction endbr64
+		if len(code)-i >= 4 {
+			endbr64 := [4]byte{0xf3, 0x0f, 0x1e, 0xfa}
+			var testForEndbr64 [4]byte
+			copy(testForEndbr64[:], code[i:i+4])
+			if endbr64 == testForEndbr64 {
+				fmt.Printf("Offset 0x%x: Skipping endbr64\n", i)
+				i += 4
+				continue
+			}
+		}
+
 		var inst x86asm.Inst
 		inst, err = x86asm.Decode(code[i:], 64)
 		if err != nil {
 			// If we are strict we return an error here
 			// However, we will use the soft version and just skip obfuscating, if we can't decode an instruction
+			fmt.Printf("Can't decode instruction at offset %v: %v\n", i, err)
+			fmt.Printf("Bytes: %x\n", code[i:i+8])
 			break
 		}
 
@@ -42,7 +57,7 @@ func Obfuscate(filename string) (*[]common.ObfuscatedInstruction, error) {
 			obfuscatedInstructions = append(obfuscatedInstructions, common.ObfuscatedInstruction{
 				Inst:   inst,
 				Offset: uint64(i),
-				Binary: code[i:i+inst.Len],
+				Binary: code[i : i+inst.Len],
 			})
 		}
 		i += inst.Len
@@ -66,7 +81,7 @@ func Obfuscate(filename string) (*[]common.ObfuscatedInstruction, error) {
 				}
 			}
 			if isJump {
-				obfuscatedElf[offset] = 0xcc //0x90
+				obfuscatedElf[offset] = 0x90
 			} else {
 				obfuscatedElf[offset] = data
 			}

@@ -24,7 +24,7 @@ func main() {
 		panic(err)
 	}
 
-	if err := ioutil.WriteFile(filename + ".meta", metadataJson, 0666); err != nil {
+	if err := ioutil.WriteFile(filename + ".obf.meta", metadataJson, 0666); err != nil {
 		panic(err)
 	}
 
