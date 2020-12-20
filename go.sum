@@ -1,3 +1,5 @@
+github.com/eaburns/ptrace v0.0.0-20140801233620-8845664487b1 h1:+e12R7XomQ8X1LSn0s33eKedA4uIdYVMIblTFmHibbE=
+github.com/eaburns/ptrace v0.0.0-20140801233620-8845664487b1/go.mod h1:tw9tELpv/loUOgrELdlh02Tjwqk0T5heXMXon2Q3RyE=
 golang.org/x/arch v0.0.0-20201008161808-52c3e6f60cff h1:XmKBi9R6duxOB3lfc72wyrwiOY7X2Jl1wuI+RFOyMDE=
 golang.org/x/arch v0.0.0-20201008161808-52c3e6f60cff/go.mod h1:flIaEI6LNU6xOCD5PaJvn9wGP0agmIOqjrtsKGRguv4=
 rsc.io/pdf v0.1.1/go.mod h1:n8OzWcQ6Sp37PL01nO98y4iUCRdTGarVfzxY20ICaU4=
