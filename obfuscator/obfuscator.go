@@ -81,7 +81,7 @@ func Obfuscate(filename string) (*[]common.ObfuscatedInstruction, error) {
 				}
 			}
 			if isJump {
-				obfuscatedElf[offset] = 0x90
+				obfuscatedElf[offset] = 0x90 // todo Wouldn't it be even better to use random bytes in here?
 			} else {
 				obfuscatedElf[offset] = data
 			}

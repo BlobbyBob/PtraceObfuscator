@@ -1,0 +1,1 @@
+package loader; var Obf = []byte{0}

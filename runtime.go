@@ -14,28 +14,31 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
+	if len(os.Args) < 3 {
 		panic("Arguments missing.\n Usage: runtime myprogram ...args")
 	}
 
 	log.SetOutput(os.Stderr)
 
-	obfBinaryFilename := os.Args[1] + ".obf"
-	metadataFilename := os.Args[1] + ".obf.meta"
+	obfBinaryFilename := os.Args[1]
+	metadataFilename := os.Args[2]
 
 	metadata, err := readMetadata(metadataFilename)
+	if err != nil {
+		log.Fatalln("can't read metadata:", err)
+	}
 	_ = len(metadata)
 
 	f, err := elf.Open(obfBinaryFilename)
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalln("can't read binary:", err)
 	}
 	entrypoint := f.Entry
 	_ = f.Close()
 
 	tracee, err := ptrace.Exec(obfBinaryFilename, os.Args[1:])
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalln("can't exec binary:", err)
 	}
 
 	ev := tracee.Events()
