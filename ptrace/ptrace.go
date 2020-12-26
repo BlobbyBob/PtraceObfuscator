@@ -65,6 +65,7 @@ func Exec(name string, argv []string) (*Tracee, error) {
 				Ptrace:    true,
 				Pdeathsig: syscall.SIGCHLD,
 			},
+			Env: os.Environ(),
 		})
 		proc <- p
 		err <- e

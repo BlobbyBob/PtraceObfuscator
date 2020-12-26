@@ -7,7 +7,6 @@ import (
 	"os/exec"
 )
 
-
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Not enough arguments")
@@ -16,19 +15,35 @@ func main() {
 
 	file := os.Args[1]
 	cmd := exec.Command("go", "run", "obfuscator.go", file) // todo integrate obfuscator here
-	_ = cmd.Run()
+	b, err := cmd.CombinedOutput()
+	fmt.Println(string(b))
+	if ee, isEE := err.(*exec.ExitError); isEE {
+		if ee.ExitCode() != 0 {
+			os.Exit(ee.ExitCode())
+		}
+	}
 
-	if _, err := os.Stat("runtime"); os.IsNotExist(err) {
-		cmd = exec.Command("go", "build", "-o", "runtime", "runtime.go")
-		_ = cmd.Run()
+	cmd = exec.Command("go", "build", "-o", "runtime", "runtime.go")
+	b, _ = cmd.CombinedOutput()
+	fmt.Println(string(b))
+	if ee, isEE := err.(*exec.ExitError); isEE {
+		if ee.ExitCode() != 0 {
+			os.Exit(ee.ExitCode())
+		}
 	}
 
 	writeSourceFile("runtime", "loader/runtime.go", "Runtime")
-	writeSourceFile(file + ".obf", "loader/obf.go", "Obf")
-	writeSourceFile(file + ".obf.meta", "loader/meta.go", "Meta")
+	writeSourceFile(file+".obf", "loader/obf.go", "Obf")
+	writeSourceFile(file+".obf.meta", "loader/meta.go", "Meta")
 
-	cmd = exec.Command("go", "build", "-o", file + ".packed", "loader.go")
-	_ = cmd.Run()
+	cmd = exec.Command("go", "build", "-o", file+".packed", "loader.go")
+	b, _ = cmd.CombinedOutput()
+	fmt.Println(string(b))
+	if ee, isEE := err.(*exec.ExitError); isEE {
+		if ee.ExitCode() != 0 {
+			os.Exit(ee.ExitCode())
+		}
+	}
 }
 
 func writeSourceFile(input, output, varname string) {
@@ -38,7 +53,7 @@ func writeSourceFile(input, output, varname string) {
 		os.Exit(1)
 	}
 
-	out, err := os.OpenFile(output, os.O_WRONLY | os.O_TRUNC | os.O_CREATE, 0644)
+	out, err := os.OpenFile(output, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
 	if err != nil {
 		fmt.Println("can't open output file:", err)
 		os.Exit(1)
@@ -49,12 +64,12 @@ func writeSourceFile(input, output, varname string) {
 		os.Exit(1)
 	}
 
-	buf := make([]byte, 2 << 16) // todo maybe compress this in some way?
+	buf := make([]byte, 2<<16) // todo maybe compress this in some way?
 	for {
 		n, err := in.Read(buf)
 		if n > 0 {
 			for _, b := range buf[:n] {
-				if _, err := out.WriteString(fmt.Sprintf("0x%x, ", b)); err != nil {
+				if _, err := out.WriteString(fmt.Sprintf("%d, ", b)); err != nil {
 					fmt.Println("can't write to file:", err)
 					os.Exit(1)
 				}

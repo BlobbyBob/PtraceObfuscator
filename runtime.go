@@ -14,29 +14,27 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 3 {
-		panic("Arguments missing.\n Usage: runtime myprogram ...args")
-	}
-
 	log.SetOutput(os.Stderr)
+	log.Print("Runtime starting")
 
-	obfBinaryFilename := os.Args[1]
-	metadataFilename := os.Args[2]
+	//cmd := exec.Command("ls", "-la", fmt.Sprintf("/proc/%v/fd", os.Getpid()))
+	//out, _ := cmd.Output()
+	//log.Print(string(out))
 
-	metadata, err := readMetadata(metadataFilename)
+	metadata, err := readMetadata()
 	if err != nil {
 		log.Fatalln("can't read metadata:", err)
 	}
 	_ = len(metadata)
 
-	f, err := elf.Open(obfBinaryFilename)
+	f, err := elf.Open("/proc/self/fd/4")
 	if err != nil {
 		log.Fatalln("can't read binary:", err)
 	}
 	entrypoint := f.Entry
 	_ = f.Close()
 
-	tracee, err := ptrace.Exec(obfBinaryFilename, os.Args[1:])
+	tracee, err := ptrace.Exec("/proc/self/fd/4", os.Args) // todo adjust args
 	if err != nil {
 		log.Fatalln("can't exec binary:", err)
 	}
@@ -57,14 +55,14 @@ func main() {
 		}
 		var regs syscall.PtraceRegs
 		if err := tracee.GetRegs(&regs); err != nil {
-			log.Fatalln(err)
+			log.Fatalln("can't read regs:", err)
 		}
 		if !start {
 			start = true
 			log.Printf(".text at 0x%012x\n", textBaseAddr)
 			log.Printf("Start at 0x%012x\n", regs.Rip)
 			if err := setBreakpoints(tracee, textBaseAddr, metadata); err != nil {
-				log.Fatalln(err)
+				log.Fatalln("can't set breakpoints:", err)
 			}
 
 			//fmt.Println("Contents of .text:")
@@ -79,25 +77,30 @@ func main() {
 		} else {
 			log.Printf("0x%012x: Breakpoint (offset %012x)\n", regs.Rip, regs.Rip-textBaseAddr)
 			if err := performOriginalInstruction(tracee, textBaseAddr, metadata); err != nil {
-				log.Fatalln(err)
+				log.Fatalln("can't perform original instruction:", err)
 			}
 		}
 		if err := tracee.Continue(); err != nil {
-			log.Fatalln(err)
+			log.Fatalln("can't continue tracee:", err)
 		}
 	}
 
 	if err := tracee.Close(); err != nil {
-		log.Fatalln(err)
+		log.Fatalln("can't close tracee:", err)
 	}
 
 }
 
-func readMetadata(filename string) ([]common.ObfuscatedInstruction, error) {
-	metadataFile, err := ioutil.ReadFile(filename)
+func readMetadata() ([]common.ObfuscatedInstruction, error) {
+	log.Println("Reading metadata")
+	reader := FdReader{Fd: 3}
+	metadataFile, err := ioutil.ReadAll(reader)
 	if err != nil {
+		log.Println("Can't read file")
 		return nil, err
 	}
+
+	log.Println(string(metadataFile))
 
 	var metadataRaw []common.ExportObfuscatedInstruction
 	if err := json.Unmarshal(metadataFile, &metadataRaw); err != nil {
@@ -267,3 +270,17 @@ func jumpRel(tracee *ptrace.Tracee, regs syscall.PtraceRegs, rel x86asm.Rel) err
 	regs.Rip = regs.Rip + uint64(rel)
 	return tracee.SetRegs(&regs)
 }
+
+type FdReader struct {
+	Fd int
+}
+
+func (f FdReader) Read(p []byte) (n int, err error) {
+	n, err = syscall.Read(f.Fd, p)
+	if n < 0 {
+		n = 0
+	}
+
+	return n, err
+}
+
