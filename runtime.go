@@ -4,13 +4,14 @@ import (
 	"debug/elf"
 	"encoding/json"
 	"fmt"
+	"github.com/BlobbyBob/NOPfuscator/bin"
 	"github.com/BlobbyBob/NOPfuscator/common"
 	"github.com/BlobbyBob/NOPfuscator/ptrace"
 	"golang.org/x/arch/x86/x86asm"
-	"io/ioutil"
 	"log"
 	"os"
 	"syscall"
+	"unsafe"
 )
 
 func main() {
@@ -27,14 +28,20 @@ func main() {
 	}
 	_ = len(metadata)
 
-	f, err := elf.Open("/proc/self/fd/4")
+	obfName := "obf"
+	obfFd, _, _ := syscall.Syscall(319, uintptr(unsafe.Pointer(&obfName)), 0, 0) // 319 = memfd_create
+	_, _ = syscall.Write(int(obfFd), bin.Obf)
+	obfFdPath := fmt.Sprintf("/proc/self/fd/%d", obfFd)
+	log.Print("obf fd ", obfFd)
+
+	f, err := elf.Open(obfFdPath)
 	if err != nil {
 		log.Fatalln("can't read binary:", err)
 	}
 	entrypoint := f.Entry
 	_ = f.Close()
 
-	tracee, err := ptrace.Exec("/proc/self/fd/4", os.Args) // todo adjust args
+	tracee, err := ptrace.Exec(obfFdPath, os.Args) // todo adjust args
 	if err != nil {
 		log.Fatalln("can't exec binary:", err)
 	}
@@ -92,18 +99,8 @@ func main() {
 }
 
 func readMetadata() ([]common.ObfuscatedInstruction, error) {
-	log.Println("Reading metadata")
-	reader := FdReader{Fd: 3}
-	metadataFile, err := ioutil.ReadAll(reader)
-	if err != nil {
-		log.Println("Can't read file")
-		return nil, err
-	}
-
-	log.Println(string(metadataFile))
-
 	var metadataRaw []common.ExportObfuscatedInstruction
-	if err := json.Unmarshal(metadataFile, &metadataRaw); err != nil {
+	if err := json.Unmarshal(bin.Meta, &metadataRaw); err != nil {
 		return nil, err
 	}
 
@@ -145,15 +142,15 @@ type Eflags struct {
 
 func parseEflags(flags uint64) Eflags {
 	return Eflags{
-		CF: flags & 0x1 != 0,
-		PF: flags & 0x4 != 0,
-		AF: flags & 0x10 != 0,
-		ZF: flags & 0x40 != 0,
-		SF: flags & 0x80 != 0,
-		TF: flags & 0x100 != 0,
-		IF: flags & 0x200 != 0,
-		DF: flags & 0x400 != 0,
-		OF: flags & 0x800 != 0,
+		CF: flags&0x1 != 0,
+		PF: flags&0x4 != 0,
+		AF: flags&0x10 != 0,
+		ZF: flags&0x40 != 0,
+		SF: flags&0x80 != 0,
+		TF: flags&0x100 != 0,
+		IF: flags&0x200 != 0,
+		DF: flags&0x400 != 0,
+		OF: flags&0x800 != 0,
 	}
 }
 
@@ -175,45 +172,65 @@ func performOriginalInstruction(tracee *ptrace.Tracee, textBaseAddr uint64, meta
 			var cond bool
 			switch inst.Inst.Op {
 			case x86asm.JMP:
-				cond = true; break
+				cond = true
+				break
 			case x86asm.JO:
-				cond = eflags.OF; break
+				cond = eflags.OF
+				break
 			case x86asm.JNO:
-				cond = !eflags.OF; break
+				cond = !eflags.OF
+				break
 			case x86asm.JS:
-				cond = eflags.SF; break
+				cond = eflags.SF
+				break
 			case x86asm.JNS:
-				cond = !eflags.SF; break
+				cond = !eflags.SF
+				break
 			case x86asm.JE:
-				cond = eflags.ZF; break
+				cond = eflags.ZF
+				break
 			case x86asm.JNE:
-				cond = !eflags.ZF; break
+				cond = !eflags.ZF
+				break
 			case x86asm.JB:
-				cond = eflags.CF; break
+				cond = eflags.CF
+				break
 			case x86asm.JAE:
-				cond = !eflags.CF; break
+				cond = !eflags.CF
+				break
 			case x86asm.JBE:
-				cond = eflags.CF || eflags.ZF; break
+				cond = eflags.CF || eflags.ZF
+				break
 			case x86asm.JA:
-				cond = !eflags.CF && !eflags.ZF; break
+				cond = !eflags.CF && !eflags.ZF
+				break
 			case x86asm.JL:
-				cond = eflags.SF != eflags.OF; break
+				cond = eflags.SF != eflags.OF
+				break
 			case x86asm.JGE:
-				cond = eflags.SF == eflags.OF; break
+				cond = eflags.SF == eflags.OF
+				break
 			case x86asm.JLE:
-				cond = eflags.ZF || eflags.SF != eflags.OF; break
+				cond = eflags.ZF || eflags.SF != eflags.OF
+				break
 			case x86asm.JG:
-				cond = !eflags.ZF && eflags.SF == eflags.OF; break
+				cond = !eflags.ZF && eflags.SF == eflags.OF
+				break
 			case x86asm.JP:
-				cond = eflags.PF; break
+				cond = eflags.PF
+				break
 			case x86asm.JNP:
-				cond = !eflags.PF; break
+				cond = !eflags.PF
+				break
 			case x86asm.JRCXZ:
-				cond = regs.Rcx == 0; break
+				cond = regs.Rcx == 0
+				break
 			case x86asm.JECXZ:
-				cond = regs.Rcx & 0xffffffff == 0; break
+				cond = regs.Rcx&0xffffffff == 0
+				break
 			case x86asm.JCXZ:
-				cond = regs.Rcx & 0xffff == 0; break
+				cond = regs.Rcx&0xffff == 0
+				break
 			default:
 				log.Fatalln("Unknown instruction:", inst.Inst)
 			}
@@ -283,4 +300,3 @@ func (f FdReader) Read(p []byte) (n int, err error) {
 
 	return n, err
 }
-

@@ -2,16 +2,16 @@ package obfuscator
 
 import (
 	"debug/elf"
-	"fmt"
 	"github.com/BlobbyBob/NOPfuscator/common"
 	"golang.org/x/arch/x86/x86asm"
 	"io/ioutil"
+	"log"
 )
 
-func Obfuscate(filename string) (*[]common.ObfuscatedInstruction, error) {
+func Obfuscate(filename string) (obfElf []byte, obfInst *[]common.ObfuscatedInstruction, err error) {
 	file, err := elf.Open(filename)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	textSection := file.Section(".text")
@@ -36,7 +36,7 @@ func Obfuscate(filename string) (*[]common.ObfuscatedInstruction, error) {
 			var testForEndbr64 [4]byte
 			copy(testForEndbr64[:], code[i:i+4])
 			if endbr64 == testForEndbr64 {
-				fmt.Printf("Offset 0x%x: Skipping endbr64\n", i)
+				//log.Printf("Offset 0x%x: Skipping endbr64\n", i)
 				i += 4
 				continue
 			}
@@ -47,8 +47,8 @@ func Obfuscate(filename string) (*[]common.ObfuscatedInstruction, error) {
 		if err != nil {
 			// If we are strict we return an error here
 			// However, we will use the soft version and just skip obfuscating, if we can't decode an instruction
-			fmt.Printf("Can't decode instruction at offset %v: %v\n", i, err)
-			fmt.Printf("Bytes: %x\n", code[i:i+8])
+			log.Printf("Can't decode instruction at offset %v: %v\n", i, err)
+			log.Printf("Bytes: %x\n", code[i:i+8])
 			break
 		}
 
@@ -65,7 +65,7 @@ func Obfuscate(filename string) (*[]common.ObfuscatedInstruction, error) {
 
 	elfContents, err := ioutil.ReadFile(filename)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	obfuscatedElf := make([]byte, len(elfContents))
@@ -90,11 +90,7 @@ func Obfuscate(filename string) (*[]common.ObfuscatedInstruction, error) {
 		}
 	}
 
-	err = ioutil.WriteFile(filename+".obf", obfuscatedElf, 0777)
-	if err != nil {
-		return nil, err
-	}
-	return &obfuscatedInstructions, nil
+	return obfuscatedElf, &obfuscatedInstructions, nil
 }
 
 func obfuscateInstruction(inst x86asm.Inst) bool {
