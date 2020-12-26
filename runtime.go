@@ -16,7 +16,7 @@ import (
 
 func main() {
 	log.SetOutput(os.Stderr)
-	log.Print("Runtime starting")
+	//log.Print("Runtime starting")
 
 	//cmd := exec.Command("ls", "-la", fmt.Sprintf("/proc/%v/fd", os.Getpid()))
 	//out, _ := cmd.Output()
@@ -32,7 +32,6 @@ func main() {
 	obfFd, _, _ := syscall.Syscall(319, uintptr(unsafe.Pointer(&obfName)), 0, 0) // 319 = memfd_create
 	_, _ = syscall.Write(int(obfFd), bin.Obf)
 	obfFdPath := fmt.Sprintf("/proc/self/fd/%d", obfFd)
-	log.Print("obf fd ", obfFd)
 
 	f, err := elf.Open(obfFdPath)
 	if err != nil {
@@ -41,7 +40,7 @@ func main() {
 	entrypoint := f.Entry
 	_ = f.Close()
 
-	tracee, err := ptrace.Exec(obfFdPath, os.Args) // todo adjust args
+	tracee, err := ptrace.Exec(obfFdPath, os.Args)
 	if err != nil {
 		log.Fatalln("can't exec binary:", err)
 	}
@@ -66,8 +65,8 @@ func main() {
 		}
 		if !start {
 			start = true
-			log.Printf(".text at 0x%012x\n", textBaseAddr)
-			log.Printf("Start at 0x%012x\n", regs.Rip)
+			//log.Printf(".text at 0x%012x\n", textBaseAddr)
+			//log.Printf("Start at 0x%012x\n", regs.Rip)
 			if err := setBreakpoints(tracee, textBaseAddr, metadata); err != nil {
 				log.Fatalln("can't set breakpoints:", err)
 			}
@@ -82,7 +81,7 @@ func main() {
 			//}
 			//fmt.Println()
 		} else {
-			log.Printf("0x%012x: Breakpoint (offset %012x)\n", regs.Rip, regs.Rip-textBaseAddr)
+			//log.Printf("0x%012x: Breakpoint (offset %012x)\n", regs.Rip, regs.Rip-textBaseAddr)
 			if err := performOriginalInstruction(tracee, textBaseAddr, metadata); err != nil {
 				log.Fatalln("can't perform original instruction:", err)
 			}
@@ -286,17 +285,4 @@ func jumpImm(tracee *ptrace.Tracee, regs syscall.PtraceRegs, imm x86asm.Imm) err
 func jumpRel(tracee *ptrace.Tracee, regs syscall.PtraceRegs, rel x86asm.Rel) error {
 	regs.Rip = regs.Rip + uint64(rel)
 	return tracee.SetRegs(&regs)
-}
-
-type FdReader struct {
-	Fd int
-}
-
-func (f FdReader) Read(p []byte) (n int, err error) {
-	n, err = syscall.Read(f.Fd, p)
-	if n < 0 {
-		n = 0
-	}
-
-	return n, err
 }
