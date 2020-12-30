@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/BlobbyBob/NOPfuscator/common"
 	"github.com/BlobbyBob/NOPfuscator/obfuscator"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -22,6 +23,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	_ = ioutil.WriteFile(file+".obf", elf, 0644)
 
 	metadataJson, err := json.Marshal(common.ExportObfuscatedInstructions(*metadata))
 	if err != nil {

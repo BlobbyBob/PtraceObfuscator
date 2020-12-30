@@ -2,6 +2,7 @@ package main
 
 import (
 	"debug/elf"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"github.com/BlobbyBob/NOPfuscator/bin"
@@ -37,7 +38,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("can't read binary:", err)
 	}
-	entrypoint := f.Entry
+	entrypoint := f.Section(".text").Offset
 	_ = f.Close()
 
 	tracee, err := ptrace.Exec(obfFdPath, os.Args)
@@ -65,21 +66,21 @@ func main() {
 		}
 		if !start {
 			start = true
-			//log.Printf(".text at 0x%012x\n", textBaseAddr)
-			//log.Printf("Start at 0x%012x\n", regs.Rip)
+			log.Printf(".text at 0x%012x\n", textBaseAddr)
+			log.Printf("Start at 0x%012x\n", regs.Rip)
 			if err := setBreakpoints(tracee, textBaseAddr, metadata); err != nil {
 				log.Fatalln("can't set breakpoints:", err)
 			}
 
-			//fmt.Println("Contents of .text:")
-			//buf := make([]byte, 0x200)
-			//if _, err := tracee.Peek(uintptr(textBaseAddr), buf); err != nil {
-			//	log.Fatalln(err)
-			//}
-			//for _, b := range buf {
-			//	fmt.Printf("%02x ", b)
-			//}
-			//fmt.Println()
+			log.Print("Contents of .text:")
+			buf := make([]byte, 0x80)
+			if _, err := tracee.Peek(uintptr(textBaseAddr), buf); err != nil {
+				log.Fatalln(err)
+			}
+			for _, b := range buf {
+				fmt.Printf("%02x ", b)
+			}
+			fmt.Println()
 		} else {
 			//log.Printf("0x%012x: Breakpoint (offset %012x)\n", regs.Rip, regs.Rip-textBaseAddr)
 			if err := performOriginalInstruction(tracee, textBaseAddr, metadata); err != nil {
@@ -113,11 +114,11 @@ func readMetadata() ([]common.ObfuscatedInstruction, error) {
 
 func setBreakpoints(tracee *ptrace.Tracee, textBaseAddr uint64, metadata []common.ObfuscatedInstruction) error {
 	breakpoint := []byte{0xCC}
-	original := make([]byte, 1)
+	//original := make([]byte, 1)
 	for _, inst := range metadata {
-		if _, err := tracee.Peek(uintptr(textBaseAddr+inst.Offset), original); err != nil {
-			return err
-		}
+		//if _, err := tracee.Peek(uintptr(textBaseAddr+inst.Offset), original); err != nil {
+		//	return err
+		//}
 		if _, err := tracee.Poke(uintptr(textBaseAddr+inst.Offset), breakpoint); err != nil {
 			return err
 		}
@@ -165,7 +166,6 @@ func performOriginalInstruction(tracee *ptrace.Tracee, textBaseAddr uint64, meta
 
 	for _, inst := range metadata {
 		if inst.Offset == offset {
-			//fmt.Println("Offset matching. Original instruction:", inst.Inst)
 			eflags := parseEflags(regs.Eflags)
 
 			var cond bool
@@ -237,14 +237,30 @@ func performOriginalInstruction(tracee *ptrace.Tracee, textBaseAddr uint64, meta
 			return condJump(cond, tracee, regs, inst.Inst)
 		}
 	}
-	log.Fatalln("No matching offset found")
+	for _, inst := range metadata {
+
+		log.Printf("Offsets not matching: 0x%06x <-> 0x%06x", inst.Offset, offset)
+	}
+	mem := make([]byte, 0x40)
+	n, err := tracee.Peek(uintptr(regs.Rip-0x20), mem)
+	if err != nil {
+		log.Print(n)
+	} else {
+		for i, b := range mem {
+			if i >= n {
+				break
+			}
+			fmt.Printf("%02x ", b)
+		}
+		fmt.Println()
+	}
+	log.Fatal("No matching offset found")
 	return nil
 }
 
 func condJump(condition bool, tracee *ptrace.Tracee, regs syscall.PtraceRegs, inst x86asm.Inst) error {
 	regs.Rip += uint64(inst.Len - 1)
 	if condition {
-		//log.Printf("0x%012x: Jumping    (%v)\n", regs.Rip, inst)
 		arg := inst.Args[0]
 		if rel, isRel := arg.(x86asm.Rel); isRel {
 			return jumpRel(tracee, regs, rel)
@@ -268,21 +284,106 @@ func dontJump(tracee *ptrace.Tracee, regs syscall.PtraceRegs) error {
 }
 
 func jumpReg(tracee *ptrace.Tracee, regs syscall.PtraceRegs, reg x86asm.Reg) error {
-	// todo
+	val, err := regValue(reg, regs)
+	if err != nil {
+		log.Fatal("Can't perform indirect register jump: invalid register ", reg.String())
+	}
+	regs.Rip = val
 	return tracee.SetRegs(&regs)
 }
 
 func jumpMem(tracee *ptrace.Tracee, regs syscall.PtraceRegs, mem x86asm.Mem) error {
-	// todo
+	if mem.Segment != 0 {
+		log.Fatal("Can't perform indirect memory jump: segment register not supported; Operand: ", mem.String())
+	}
+	addr, err := regValue(mem.Base, regs)
+	if err != nil {
+		log.Fatal("Can't perform indirect memory jump: base register not supported; Operand: ", mem.String())
+	}
+	addr += uint64(mem.Disp)
+
+	if mem.Index != 0 {
+		index, err := regValue(mem.Index, regs)
+		if err != nil {
+			log.Fatal("Can't perform indirect memory jump: index register not supported; Operand: ", mem.String())
+		}
+		addr += index * uint64(mem.Scale)
+	}
+	target := make([]byte, 8)
+	if n, err := tracee.Peek(uintptr(addr), target); n != 8 || err != nil {
+		log.Fatalf("Can't perform indirect memory jump: can't fetch target address; Operand: %v; n: %v, err: %v", mem.String(), n, err)
+	}
+	regs.Rip = binary.LittleEndian.Uint64(target)
 	return tracee.SetRegs(&regs)
 }
 
 func jumpImm(tracee *ptrace.Tracee, regs syscall.PtraceRegs, imm x86asm.Imm) error {
 	// todo (However, I don't think this exists)
+	log.Fatal("Can't perform immediate jump")
 	return tracee.SetRegs(&regs)
 }
 
 func jumpRel(tracee *ptrace.Tracee, regs syscall.PtraceRegs, rel x86asm.Rel) error {
 	regs.Rip = regs.Rip + uint64(rel)
 	return tracee.SetRegs(&regs)
+}
+
+func regValue(reg x86asm.Reg, regs syscall.PtraceRegs) (uint64, error) {
+	var val uint64
+	switch reg {
+	case x86asm.RAX:
+		val = regs.Rax
+		break
+	case x86asm.RBX:
+		val = regs.Rbx
+		break
+	case x86asm.RCX:
+		val = regs.Rcx
+		break
+	case x86asm.RDX:
+		val = regs.Rdx
+		break
+	case x86asm.RSP:
+		val = regs.Rsp
+		break
+	case x86asm.RBP:
+		val = regs.Rbp
+		break
+	case x86asm.RIP:
+		val = regs.Rip
+		break
+	case x86asm.RDI:
+		val = regs.Rdi
+		break
+	case x86asm.RSI:
+		val = regs.Rsi
+		break
+	case x86asm.R8:
+		val = regs.R8
+		break
+	case x86asm.R9:
+		val = regs.R9
+		break
+	case x86asm.R10:
+		val = regs.R10
+		break
+	case x86asm.R11:
+		val = regs.R11
+		break
+	case x86asm.R12:
+		val = regs.R12
+		break
+	case x86asm.R13:
+		val = regs.R13
+		break
+	case x86asm.R14:
+		val = regs.R14
+		break
+	case x86asm.R15:
+		val = regs.R15
+		break
+	default:
+		return val, fmt.Errorf("invalid register: %v", reg)
+	}
+	return val, nil
 }
