@@ -15,6 +15,8 @@ import (
 	"unsafe"
 )
 
+var failCount = 0
+
 func main() {
 	log.SetOutput(os.Stderr)
 	//log.Print("Runtime starting")
@@ -60,27 +62,30 @@ func main() {
 		if status.Exited() {
 			break
 		}
+		if status.StopSignal() != syscall.SIGTRAP {
+			log.Fatalf("unexpected status: %v", status.StopSignal())
+		}
 		var regs syscall.PtraceRegs
 		if err := tracee.GetRegs(&regs); err != nil {
 			log.Fatalln("can't read regs:", err)
 		}
 		if !start {
 			start = true
-			log.Printf(".text at 0x%012x\n", textBaseAddr)
-			log.Printf("Start at 0x%012x\n", regs.Rip)
+			//log.Printf(".text at 0x%012x\n", textBaseAddr)
+			//log.Printf("Start at 0x%012x\n", regs.Rip)
 			if err := setBreakpoints(tracee, textBaseAddr, metadata); err != nil {
 				log.Fatalln("can't set breakpoints:", err)
 			}
 
-			log.Print("Contents of .text:")
-			buf := make([]byte, 0x80)
-			if _, err := tracee.Peek(uintptr(textBaseAddr), buf); err != nil {
-				log.Fatalln(err)
-			}
-			for _, b := range buf {
-				fmt.Printf("%02x ", b)
-			}
-			fmt.Println()
+			//log.Print("Contents of .text:")
+			//buf := make([]byte, 0x80)
+			//if _, err := tracee.Peek(uintptr(textBaseAddr), buf); err != nil {
+			//	log.Fatalln(err)
+			//}
+			//for _, b := range buf {
+			//	fmt.Printf("%02x ", b)
+			//}
+			//fmt.Println()
 		} else {
 			//log.Printf("0x%012x: Breakpoint (offset %012x)\n", regs.Rip, regs.Rip-textBaseAddr)
 			if err := performOriginalInstruction(tracee, textBaseAddr, metadata); err != nil {
@@ -238,9 +243,12 @@ func performOriginalInstruction(tracee *ptrace.Tracee, textBaseAddr uint64, meta
 		}
 	}
 	for _, inst := range metadata {
-
-		log.Printf("Offsets not matching: 0x%06x <-> 0x%06x", inst.Offset, offset)
+		o := 0x200 + inst.Offset - offset
+		if o < 0x400 {
+			log.Printf("Offsets not matching: 0x%06x <-> 0x%06x", inst.Offset, offset)
+		}
 	}
+	log.Printf("RIP: 0x%012x", regs.Rip)
 	mem := make([]byte, 0x40)
 	n, err := tracee.Peek(uintptr(regs.Rip-0x20), mem)
 	if err != nil {
@@ -254,7 +262,12 @@ func performOriginalInstruction(tracee *ptrace.Tracee, textBaseAddr uint64, meta
 		}
 		fmt.Println()
 	}
-	log.Fatal("No matching offset found")
+	failCount++
+	if failCount > 0 {
+		log.Fatal("No matching offset found")
+	} else {
+		log.Print("No matching offset found")
+	}
 	return nil
 }
 
@@ -289,6 +302,7 @@ func jumpReg(tracee *ptrace.Tracee, regs syscall.PtraceRegs, reg x86asm.Reg) err
 		log.Fatal("Can't perform indirect register jump: invalid register ", reg.String())
 	}
 	regs.Rip = val
+	log.Printf("Register jump to 0x%012x", val)
 	return tracee.SetRegs(&regs)
 }
 
@@ -314,17 +328,19 @@ func jumpMem(tracee *ptrace.Tracee, regs syscall.PtraceRegs, mem x86asm.Mem) err
 		log.Fatalf("Can't perform indirect memory jump: can't fetch target address; Operand: %v; n: %v, err: %v", mem.String(), n, err)
 	}
 	regs.Rip = binary.LittleEndian.Uint64(target)
+	log.Printf("Memory jump to 0x%012x", regs.Rip)
 	return tracee.SetRegs(&regs)
 }
 
 func jumpImm(tracee *ptrace.Tracee, regs syscall.PtraceRegs, imm x86asm.Imm) error {
 	// todo (However, I don't think this exists)
 	log.Fatal("Can't perform immediate jump")
-	return tracee.SetRegs(&regs)
+	return nil
 }
 
 func jumpRel(tracee *ptrace.Tracee, regs syscall.PtraceRegs, rel x86asm.Rel) error {
 	regs.Rip = regs.Rip + uint64(rel)
+	//log.Printf("Relative jump to 0x%012x", regs.Rip)
 	return tracee.SetRegs(&regs)
 }
 

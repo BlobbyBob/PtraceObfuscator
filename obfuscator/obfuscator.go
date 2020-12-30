@@ -36,11 +36,12 @@ func Obfuscate(filename string) (obfElf []byte, obfInst *[]common.ObfuscatedInst
 			var testForEndbr64 [4]byte
 			copy(testForEndbr64[:], code[i:i+4])
 			if endbr64 == testForEndbr64 {
-				//log.Printf("Offset 0x%x: Skipping endbr64\n", i)
+				//log.Printf("offset 0x%x: Skipping endbr64\n", i)
 				i += 4
 				continue
 			}
 		}
+		// Circumventing issues, when an instruction gets decoded as prefix
 
 		var inst x86asm.Inst
 		inst, err = x86asm.Decode(code[i:], 64)
@@ -49,6 +50,11 @@ func Obfuscate(filename string) (obfElf []byte, obfInst *[]common.ObfuscatedInst
 			// However, we will use the soft version and just skip obfuscating, if we can't decode an instruction
 			log.Printf("Can't decode instruction at offset %v: %v\n", i, err)
 			log.Printf("Bytes: %x\n", code[i:i+8])
+			break
+		}
+
+		if inst.Opcode == 0 && inst.Prefix[0] != 0 {
+			log.Printf("offset 0x%x: warn: encountered instruction '%v', which is most likely decoded incorrectly. stopping here\n", uint64(i)+textSection.Offset, inst)
 			break
 		}
 
@@ -62,6 +68,8 @@ func Obfuscate(filename string) (obfElf []byte, obfInst *[]common.ObfuscatedInst
 		}
 		i += inst.Len
 	}
+
+	log.Printf("Obfuscated %d instructions", len(obfuscatedInstructions))
 
 	elfContents, err := ioutil.ReadFile(filename)
 	if err != nil {
