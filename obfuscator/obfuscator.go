@@ -122,7 +122,8 @@ func obfuscateInstruction(inst x86asm.Inst) bool {
 		x86asm.JO,
 		x86asm.JP,
 		x86asm.JRCXZ,
-		x86asm.JS:
+		x86asm.JS,
+		x86asm.CALL:
 		return true
 	}
 

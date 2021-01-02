@@ -15,8 +15,6 @@ import (
 	"unsafe"
 )
 
-var failCount = 0
-
 func main() {
 	log.SetOutput(os.Stderr)
 	//log.Print("Runtime starting")
@@ -174,6 +172,7 @@ func performOriginalInstruction(tracee *ptrace.Tracee, textBaseAddr uint64, meta
 			eflags := parseEflags(regs.Eflags)
 
 			var cond bool
+			call := false
 			switch inst.Inst.Op {
 			case x86asm.JMP:
 				cond = true
@@ -235,11 +234,15 @@ func performOriginalInstruction(tracee *ptrace.Tracee, textBaseAddr uint64, meta
 			case x86asm.JCXZ:
 				cond = regs.Rcx&0xffff == 0
 				break
+			case x86asm.CALL:
+				cond = true
+				call = true
+				break
 			default:
 				log.Fatalln("Unknown instruction:", inst.Inst)
 			}
 
-			return condJump(cond, tracee, regs, inst.Inst)
+			return condJump(cond, tracee, regs, inst.Inst, call)
 		}
 	}
 	for _, inst := range metadata {
@@ -262,17 +265,22 @@ func performOriginalInstruction(tracee *ptrace.Tracee, textBaseAddr uint64, meta
 		}
 		fmt.Println()
 	}
-	failCount++
-	if failCount > 0 {
-		log.Fatal("No matching offset found")
-	} else {
-		log.Print("No matching offset found")
-	}
+	log.Fatal("No matching offset found")
 	return nil
 }
 
-func condJump(condition bool, tracee *ptrace.Tracee, regs syscall.PtraceRegs, inst x86asm.Inst) error {
-	regs.Rip += uint64(inst.Len - 1)
+func condJump(condition bool, tracee *ptrace.Tracee, regs syscall.PtraceRegs, inst x86asm.Inst, isCall bool) error {
+	if isCall {
+		regs.Rip += uint64(inst.Len - 1)
+		regs.Rsp -= 8
+		returnAddress := make([]byte, 8)
+		binary.LittleEndian.PutUint64(returnAddress, regs.Rip)
+		if n, err := tracee.Poke(uintptr(regs.Rsp), returnAddress); n != 8 || err != nil {
+			return err
+		}
+	} else { // isJump
+		regs.Rip += uint64(inst.Len - 1)
+	}
 	if condition {
 		arg := inst.Args[0]
 		if rel, isRel := arg.(x86asm.Rel); isRel {
@@ -302,7 +310,7 @@ func jumpReg(tracee *ptrace.Tracee, regs syscall.PtraceRegs, reg x86asm.Reg) err
 		log.Fatal("Can't perform indirect register jump: invalid register ", reg.String())
 	}
 	regs.Rip = val
-	log.Printf("Register jump to 0x%012x", val)
+	//log.Printf("Register jump to 0x%012x", val)
 	return tracee.SetRegs(&regs)
 }
 
@@ -328,12 +336,12 @@ func jumpMem(tracee *ptrace.Tracee, regs syscall.PtraceRegs, mem x86asm.Mem) err
 		log.Fatalf("Can't perform indirect memory jump: can't fetch target address; Operand: %v; n: %v, err: %v", mem.String(), n, err)
 	}
 	regs.Rip = binary.LittleEndian.Uint64(target)
-	log.Printf("Memory jump to 0x%012x", regs.Rip)
+	//log.Printf("Memory jump to 0x%012x (stored at 0x%012x)", regs.Rip, target)
 	return tracee.SetRegs(&regs)
 }
 
 func jumpImm(tracee *ptrace.Tracee, regs syscall.PtraceRegs, imm x86asm.Imm) error {
-	// todo (However, I don't think this exists)
+	// AFAIK immediate operands don't exist for jumps and calls
 	log.Fatal("Can't perform immediate jump")
 	return nil
 }
