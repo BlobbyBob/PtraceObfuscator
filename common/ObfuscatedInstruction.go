@@ -24,16 +24,18 @@ func ExportObfuscatedInstructions(input []ObfuscatedInstruction) []ExportObfusca
 	return output
 }
 
-func ImportObfuscatedInstructions(input []ExportObfuscatedInstruction) ([]ObfuscatedInstruction, error) {
-	output := make([]ObfuscatedInstruction, len(input))
-	for i, data := range input {
-		output[i].Offset = data.Offset
-		output[i].Binary = data.Instruction
+func ImportObfuscatedInstructions(input []ExportObfuscatedInstruction) (map[uint64]ObfuscatedInstruction, error) {
+	output := make(map[uint64]ObfuscatedInstruction, len(input))
+	for _, data := range input {
 		inst, err := x86asm.Decode(data.Instruction, 64)
 		if err != nil {
 			return nil, err
 		}
-		output[i].Inst = inst
+		output[data.Offset] = ObfuscatedInstruction{
+			Offset: data.Offset,
+			Binary: data.Instruction,
+			Inst: inst,
+		}
 	}
 	return output, nil
 }

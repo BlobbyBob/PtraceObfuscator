@@ -101,7 +101,7 @@ func main() {
 
 }
 
-func readMetadata() ([]common.ObfuscatedInstruction, error) {
+func readMetadata() (map[uint64]common.ObfuscatedInstruction, error) {
 	var metadataRaw []common.ExportObfuscatedInstruction
 	if err := json.Unmarshal(bin.Meta, &metadataRaw); err != nil {
 		return nil, err
@@ -115,7 +115,7 @@ func readMetadata() ([]common.ObfuscatedInstruction, error) {
 	return m, nil
 }
 
-func setBreakpoints(tracee *ptrace.Tracee, textBaseAddr uint64, metadata []common.ObfuscatedInstruction) error {
+func setBreakpoints(tracee *ptrace.Tracee, textBaseAddr uint64, metadata map[uint64]common.ObfuscatedInstruction) error {
 	breakpoint := []byte{0xCC}
 	//original := make([]byte, 1)
 	for _, inst := range metadata {
@@ -157,93 +157,90 @@ func parseEflags(flags uint64) Eflags {
 	}
 }
 
-func performOriginalInstruction(tracee *ptrace.Tracee, textBaseAddr uint64, metadata []common.ObfuscatedInstruction) error {
+func performOriginalInstruction(tracee *ptrace.Tracee, textBaseAddr uint64, metadata map[uint64]common.ObfuscatedInstruction) error {
 	var regs syscall.PtraceRegs
 	if err := tracee.GetRegs(&regs); err != nil {
 		return err
 	}
 
-	// Todo be more efficient in searching metadata
-
 	offset := regs.Rip - textBaseAddr - 1 // RIP already points to next instruction right now
 
-	for _, inst := range metadata {
-		if inst.Offset == offset {
-			eflags := parseEflags(regs.Eflags)
+	inst, exists := metadata[offset]
+	if exists {
+		eflags := parseEflags(regs.Eflags)
 
-			var cond bool
-			call := false
-			switch inst.Inst.Op {
-			case x86asm.JMP:
-				cond = true
-				break
-			case x86asm.JO:
-				cond = eflags.OF
-				break
-			case x86asm.JNO:
-				cond = !eflags.OF
-				break
-			case x86asm.JS:
-				cond = eflags.SF
-				break
-			case x86asm.JNS:
-				cond = !eflags.SF
-				break
-			case x86asm.JE:
-				cond = eflags.ZF
-				break
-			case x86asm.JNE:
-				cond = !eflags.ZF
-				break
-			case x86asm.JB:
-				cond = eflags.CF
-				break
-			case x86asm.JAE:
-				cond = !eflags.CF
-				break
-			case x86asm.JBE:
-				cond = eflags.CF || eflags.ZF
-				break
-			case x86asm.JA:
-				cond = !eflags.CF && !eflags.ZF
-				break
-			case x86asm.JL:
-				cond = eflags.SF != eflags.OF
-				break
-			case x86asm.JGE:
-				cond = eflags.SF == eflags.OF
-				break
-			case x86asm.JLE:
-				cond = eflags.ZF || eflags.SF != eflags.OF
-				break
-			case x86asm.JG:
-				cond = !eflags.ZF && eflags.SF == eflags.OF
-				break
-			case x86asm.JP:
-				cond = eflags.PF
-				break
-			case x86asm.JNP:
-				cond = !eflags.PF
-				break
-			case x86asm.JRCXZ:
-				cond = regs.Rcx == 0
-				break
-			case x86asm.JECXZ:
-				cond = regs.Rcx&0xffffffff == 0
-				break
-			case x86asm.JCXZ:
-				cond = regs.Rcx&0xffff == 0
-				break
-			case x86asm.CALL:
-				cond = true
-				call = true
-				break
-			default:
-				log.Fatalln("Unknown instruction:", inst.Inst)
-			}
-
-			return condJump(cond, tracee, regs, inst.Inst, call)
+		var cond bool
+		call := false
+		switch inst.Inst.Op {
+		case x86asm.JMP:
+			cond = true
+			break
+		case x86asm.JO:
+			cond = eflags.OF
+			break
+		case x86asm.JNO:
+			cond = !eflags.OF
+			break
+		case x86asm.JS:
+			cond = eflags.SF
+			break
+		case x86asm.JNS:
+			cond = !eflags.SF
+			break
+		case x86asm.JE:
+			cond = eflags.ZF
+			break
+		case x86asm.JNE:
+			cond = !eflags.ZF
+			break
+		case x86asm.JB:
+			cond = eflags.CF
+			break
+		case x86asm.JAE:
+			cond = !eflags.CF
+			break
+		case x86asm.JBE:
+			cond = eflags.CF || eflags.ZF
+			break
+		case x86asm.JA:
+			cond = !eflags.CF && !eflags.ZF
+			break
+		case x86asm.JL:
+			cond = eflags.SF != eflags.OF
+			break
+		case x86asm.JGE:
+			cond = eflags.SF == eflags.OF
+			break
+		case x86asm.JLE:
+			cond = eflags.ZF || eflags.SF != eflags.OF
+			break
+		case x86asm.JG:
+			cond = !eflags.ZF && eflags.SF == eflags.OF
+			break
+		case x86asm.JP:
+			cond = eflags.PF
+			break
+		case x86asm.JNP:
+			cond = !eflags.PF
+			break
+		case x86asm.JRCXZ:
+			cond = regs.Rcx == 0
+			break
+		case x86asm.JECXZ:
+			cond = regs.Rcx&0xffffffff == 0
+			break
+		case x86asm.JCXZ:
+			cond = regs.Rcx&0xffff == 0
+			break
+		case x86asm.CALL:
+			cond = true
+			call = true
+			break
+		default:
+			log.Fatalln("Unknown instruction:", inst.Inst)
 		}
+
+		return condJump(cond, tracee, regs, inst.Inst, call)
 	}
 	for _, inst := range metadata {
 		o := 0x200 + inst.Offset - offset
