@@ -19,7 +19,7 @@ func main() {
 
 	file := os.Args[1]
 	log.Print("Obfuscating ", file)
-	elf, metadata, err := obfuscator.Obfuscate(file)
+	elf, metadata, err := obfuscator.Obfuscate(file, obfuscator.Recursive)
 	if err != nil {
 		log.Fatal(err)
 	}
