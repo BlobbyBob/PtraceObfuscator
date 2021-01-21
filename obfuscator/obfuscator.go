@@ -2,16 +2,24 @@ package obfuscator
 
 import (
 	"debug/elf"
-	"fmt"
 	"github.com/BlobbyBob/NOPfuscator/common"
 	"golang.org/x/arch/x86/x86asm"
 	"io/ioutil"
 	"log"
+	"math/rand"
+	"time"
+)
+
+var (
+	randVal uint64
+	randBytes byte
 )
 
 const (
 	Linear = 0
 	Recursive = 1
+	Nop = 0
+	Rand = 2
 )
 
 func Obfuscate(filename string, mode int) (obfElf []byte, obfInst *[]common.ObfuscatedInstruction, err error) {
@@ -34,13 +42,15 @@ func Obfuscate(filename string, mode int) (obfElf []byte, obfInst *[]common.Obfu
 
 	err = nil
 	obfuscatedInstructions := make([]common.ObfuscatedInstruction, 0)
-	if mode == Linear {
+	if mode&1 == Linear {
 		linearDisassembler(code, &obfuscatedInstructions, textSection.Offset)
-	} else if mode == Recursive {
+	} else if mode&1 == Recursive {
 		recursiveDisassembler(code, &obfuscatedInstructions, textSection.Offset, file.Entry)
-	} else {
-		return nil, nil, fmt.Errorf("invalid obfuscation mode: %v", mode)
 	}
+
+	// Rand init
+	rand.Seed(time.Now().UnixNano())
+	randBytes = 0
 
 	log.Printf("Obfuscated %d instructions", len(obfuscatedInstructions))
 
@@ -62,7 +72,11 @@ func Obfuscate(filename string, mode int) (obfElf []byte, obfInst *[]common.Obfu
 				}
 			}
 			if isJump {
-				obfuscatedElf[offset] = 0x90 // todo Wouldn't it be even better to use random bytes in here?
+				if mode&2 == Rand {
+					obfuscatedElf[offset] = randByte()
+				} else if mode&2 == Nop {
+					obfuscatedElf[offset] = 0x90
+				}
 			} else {
 				obfuscatedElf[offset] = data
 			}
@@ -72,6 +86,17 @@ func Obfuscate(filename string, mode int) (obfElf []byte, obfInst *[]common.Obfu
 	}
 
 	return obfuscatedElf, &obfuscatedInstructions, nil
+}
+
+func randByte() byte {
+	if randBytes == 0 {
+		randVal = rand.Uint64()
+		randBytes = 8
+	}
+	randBytes--
+	v := byte(randVal & 0xff)
+	randVal >>= 8
+	return v
 }
 
 func linearDisassembler(code []byte, obfInst *[]common.ObfuscatedInstruction, textOffset uint64) {

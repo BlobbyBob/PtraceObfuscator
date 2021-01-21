@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"github.com/BlobbyBob/NOPfuscator/common"
 	"github.com/BlobbyBob/NOPfuscator/obfuscator"
@@ -12,14 +13,24 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Not enough arguments")
+	nop := flag.Bool("nop", false, "Use NOPs instead of random data")
+	var file string
+	flag.StringVar(&file, "f", "", "ELF file. Existing files with suffixes .obf, .strip and .packed in directory of the file will be overwritten")
+	flag.Parse()
+
+	if file == "" {
+		fmt.Println("Missing argument: filename")
 		os.Exit(1)
 	}
 
-	file := os.Args[1]
 	log.Print("Obfuscating ", file)
-	elf, metadata, err := obfuscator.Obfuscate(file, obfuscator.Recursive)
+	repl := 0
+	if !*nop {
+		repl = obfuscator.Rand
+	}
+
+	execute("strip", "-s", "-o", file+".strip", file)
+	elf, metadata, err := obfuscator.Obfuscate(file + ".strip", obfuscator.Linear | repl)
 	if err != nil {
 		log.Fatal(err)
 	}
