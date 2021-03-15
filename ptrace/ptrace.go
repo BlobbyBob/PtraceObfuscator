@@ -167,6 +167,7 @@ func (t *Tracee) trace() {
 	}
 }
 
+// Read registers of Tracee
 func (t *Tracee) GetRegs(regs *syscall.PtraceRegs) error {
 	err := make(chan error, 1)
 	if t.do(func() { err <- syscall.PtraceGetRegs(t.proc.Pid, regs) }) {
@@ -175,6 +176,7 @@ func (t *Tracee) GetRegs(regs *syscall.PtraceRegs) error {
 	return ErrExited
 }
 
+// Write registers of Tracee
 func (t *Tracee) SetRegs(regs *syscall.PtraceRegs) error {
 	err := make(chan error, 1)
 	if t.do(func() { err <- syscall.PtraceSetRegs(t.proc.Pid, regs) }) {
@@ -183,6 +185,7 @@ func (t *Tracee) SetRegs(regs *syscall.PtraceRegs) error {
 	return ErrExited
 }
 
+// Read memory of Tracee
 func (t *Tracee) Peek(addr uintptr, data []byte) (int, error) {
 	err := make(chan error, 1)
 	count := make(chan int, 1)
@@ -192,6 +195,7 @@ func (t *Tracee) Peek(addr uintptr, data []byte) (int, error) {
 	return 0, ErrExited
 }
 
+// Write memory of Tracee
 func (t *Tracee) Poke(addr uintptr, data []byte) (int, error) {
 	err := make(chan error, 1)
 	count := make(chan int, 1)
@@ -201,10 +205,14 @@ func (t *Tracee) Poke(addr uintptr, data []byte) (int, error) {
 	return 0, ErrExited
 }
 
+// Fetch virtual memory layout
+// This can't be done via ptrace, but via the /proc filesystem
 func (t *Tracee) Memmap() ([]byte, error) {
 	return ioutil.ReadFile(fmt.Sprintf("/proc/%v/maps", t.proc.Pid))
 }
 
+// Iterate through the memory mapped sections to find the first executable segment
+// (which usually contains the mapped .text section)
 func (t *Tracee) FirstExecSection() (*SectionInfo, error) {
 	memmap, err := t.Memmap()
 	if err != nil {
@@ -222,6 +230,7 @@ func (t *Tracee) FirstExecSection() (*SectionInfo, error) {
 	return nil, fmt.Errorf("no executable section found")
 }
 
+// Helper function for parsing the textual representation from /proc/<PID>/maps
 func parseSectionInfo(parts []string) *SectionInfo {
 	si := new(SectionInfo)
 	i := 0

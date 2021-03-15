@@ -2,7 +2,7 @@ package obfuscator
 
 import (
 	"debug/elf"
-	"github.com/BlobbyBob/NOPfuscator/common"
+	"github.com/BlobbyBob/PtraceObfuscator/common"
 	"golang.org/x/arch/x86/x86asm"
 	"io/ioutil"
 	"log"
@@ -22,12 +22,26 @@ const (
 	Rand = 2
 )
 
+// Obfuscator
+//
+// Obfuscate replaces the control flow instructions of a x64 ELF binary with either nops
+// or with random data.
+//
+//    filename - Valid path to an ELF file
+//    mode     - Combination of {Linear|Recursive} | {Nop|Rand}
+//               Be aware, that the recursive disassembler will not work well on most binaries.
+//
+//    Return values:
+//    - []byte containing the obfuscated binary
+//    - *[]common.ObfuscatedInstruction containing information about the replaced instructions
+//    - error
 func Obfuscate(filename string, mode int) (obfElf []byte, obfInst *[]common.ObfuscatedInstruction, err error) {
 	file, err := elf.Open(filename)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	// Read bytes from text section
 	textSection := file.Section(".text")
 	textReader := textSection.Open()
 	code := make([]byte, 0)
@@ -40,6 +54,7 @@ func Obfuscate(filename string, mode int) (obfElf []byte, obfInst *[]common.Obfu
 		code = append(code, codeBit[:n]...)
 	}
 
+	// Disassemble text section
 	err = nil
 	obfuscatedInstructions := make([]common.ObfuscatedInstruction, 0)
 	if mode&1 == Linear {
@@ -54,6 +69,7 @@ func Obfuscate(filename string, mode int) (obfElf []byte, obfInst *[]common.Obfu
 
 	log.Printf("Obfuscated %d instructions", len(obfuscatedInstructions))
 
+	// Generate obfuscated binary
 	elfContents, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, nil, err
@@ -88,6 +104,7 @@ func Obfuscate(filename string, mode int) (obfElf []byte, obfInst *[]common.Obfu
 	return obfuscatedElf, &obfuscatedInstructions, nil
 }
 
+// Produce a single random byte, but do not waste the other bytes returned by rand.* functions
 func randByte() byte {
 	if randBytes == 0 {
 		randVal = rand.Uint64()
@@ -99,6 +116,10 @@ func randByte() byte {
 	return v
 }
 
+// Linear Disassembler
+//
+// This function not only disassembles, but also decides, what produces the metadata
+// If an error occurs, the function will return the partial result
 func linearDisassembler(code []byte, obfInst *[]common.ObfuscatedInstruction, textOffset uint64) {
 	i := 0
 	for i < len(code) {
@@ -141,15 +162,24 @@ func linearDisassembler(code []byte, obfInst *[]common.ObfuscatedInstruction, te
 	}
 }
 
+// Recursive Disassembler
+//
+// This function not only disassembles, but also decides, what produces the metadata
+// If an error occurs, the function will return the partial result
+//
+// CAUTION: This doesn't work well for many binaries. Reason is, that for example gcc-compiled programs
+//          only have a call to _libc_start_main(..., main, ...) at the entrypoint. However, for general
+//          programs we cannot assume, that a value in a register points to valid instructions. Only
+//          hardcoding this condition would help here.
 func recursiveDisassembler(code []byte, obfInst *[]common.ObfuscatedInstruction, textOffset uint64, entrypoint uint64) {
 	codeLen := uint64(len(code))
 	stack := make([]uint64, 0)
 	stack = append(stack, entrypoint-textOffset)
-	log.Printf("PUSH %04x", entrypoint-textOffset)
+	// log.Printf("PUSH %04x", entrypoint-textOffset)
 	visited := make(map[uint64]interface{})
 	for len(stack) > 0 {
 		i := stack[len(stack)-1]
-		log.Printf("POP  %04x", entrypoint-textOffset)
+		// log.Printf("POP  %04x", entrypoint-textOffset)
 		stack = stack[:len(stack)-1]
 		if _, exists := visited[i]; exists {
 			continue
@@ -180,7 +210,7 @@ func recursiveDisassembler(code []byte, obfInst *[]common.ObfuscatedInstruction,
 				break
 			}
 
-			log.Printf("%04x %v", i, inst)
+			// log.Printf("%04x %v", i, inst)
 
 			// Prefix Bug
 			if inst.Opcode == 0 && inst.Prefix[0] != 0 {
@@ -191,7 +221,7 @@ func recursiveDisassembler(code []byte, obfInst *[]common.ObfuscatedInstruction,
 			// Recursion
 			if target, follow := recursiveFollow(inst, i); follow {
 				stack = append(stack, target)
-				log.Printf("PUSH %04x", target)
+				// log.Printf("PUSH %04x", target)
 			}
 
 			// Obfuscate?
@@ -213,6 +243,7 @@ func recursiveDisassembler(code []byte, obfInst *[]common.ObfuscatedInstruction,
 	}
 }
 
+// Helper function resolving relative operands
 func recursiveFollow(inst x86asm.Inst, offset uint64) (target uint64, follow bool) {
 	switch inst.Op {
 	case x86asm.JA,
@@ -253,6 +284,7 @@ func recursiveFollow(inst x86asm.Inst, offset uint64) (target uint64, follow boo
 	return
 }
 
+// Helper function determining what instructions to obfuscate
 func obfuscateInstruction(inst x86asm.Inst) bool {
 	switch inst.Op {
 	case x86asm.JA,

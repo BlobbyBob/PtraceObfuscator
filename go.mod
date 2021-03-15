@@ -1,4 +1,4 @@
-module github.com/BlobbyBob/NOPfuscator
+module github.com/BlobbyBob/PtraceObfuscator
 
 go 1.15
 

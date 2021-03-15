@@ -12,6 +12,10 @@ import (
 	"os/exec"
 )
 
+// Packer
+//
+// The packer produces a single standalone obfuscated binary by compiling the runtime
+// with the obfuscated binary and the metadata integrated as binary buffers.
 func main() {
 	nop := flag.Bool("nop", false, "Use NOPs instead of random data")
 	var file string
@@ -30,7 +34,7 @@ func main() {
 	}
 
 	execute("strip", "-s", "-o", file+".strip", file)
-	elf, metadata, err := obfuscator.Obfuscate(file + ".strip", obfuscator.Linear | repl)
+	elf, metadata, err := obfuscator.Obfuscate(file+".strip", obfuscator.Linear|repl)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -51,6 +55,7 @@ func main() {
 	execute("strip", "-s", file+".packed")
 }
 
+// A simple utility for executing a program on the command line
 func execute(name string, arg ...string) {
 	cmd := exec.Command(name, arg...)
 	b, err := cmd.CombinedOutput()
@@ -62,6 +67,7 @@ func execute(name string, arg ...string) {
 	}
 }
 
+// Write a binary buffer into a Go source file
 func writeSourceFile(input []byte, output, varname string) {
 	out, err := os.OpenFile(output, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
 	if err != nil {
@@ -75,7 +81,7 @@ func writeSourceFile(input []byte, output, varname string) {
 	}
 
 	for _, b := range input {
-		if _, err := out.WriteString(fmt.Sprintf("%d, ", b)); err != nil {
+		if _, err := out.WriteString(fmt.Sprintf("%d,", b)); err != nil {
 			fmt.Println("can't write to file:", err)
 			os.Exit(1)
 		}
