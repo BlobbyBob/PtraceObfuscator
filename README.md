@@ -9,6 +9,7 @@ Consult [golang.org](https://golang.org/doc/) for information on how to set up G
 Example usage:
 ```
 git clone git@github.com:BlobbyBob/PtraceObfuscator.git
+cd PtraceObfuscator
 go mod download
 go build packer.go
 cp $(which du) .
