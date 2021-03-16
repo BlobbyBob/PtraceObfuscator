@@ -25,4 +25,5 @@ You can use the `-nop` option if you want the obfuscated instructions to be repl
 There are some conditions that the input binary needs to fulfill:
 - It needs to be linearly disassemblable
 - It needs to be single-threaded (and may only use a single process)
-However, if you want to improve the PtraceObfuscator, feel free to create a pull request.
+
+As these are implementable in theory, feel free to create a pull request, if you want to improve the PtraceObfuscator.
